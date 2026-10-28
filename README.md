@@ -1,63 +1,26 @@
-# Hackton Avanade - Análise inteligente de imagens
+# Hackton Avanade
 
-Aplicação desenvolvida para o desafio Pague Menos. O sistema recebe uma imagem,
-faz uma validação técnica local e, quando a imagem atende aos requisitos básicos,
-encaminha o arquivo para um modelo de visão executado pelo Ollama. O resultado
-informa se a imagem foi aprovada, em qual etapa ocorreu a decisão e os motivos
-da reprovação, quando aplicável.
+Aplicação para validar imagens de campanhas, identificar problemas técnicos e semânticos e orientar a revisão humana antes da aprovação final.
 
-## O que foi modificado
+## Visão geral
 
-### Backend
+O projeto recebe uma imagem, verifica se ela atende aos critérios mínimos de qualidade, e, em seguida, encaminha o arquivo para um modelo de visão para análise contextual. O sistema devolve:
 
-- Migração da API para **FastAPI**, com execução assíncrona.
-- Criação de um fluxo de análise em duas etapas:
-  1. validação técnica rápida, usando OpenCV;
-  2. análise semântica da imagem por um modelo de visão no Ollama.
-- Validações de entrada antes do processamento:
-  - tipo MIME da imagem;
-  - tamanho máximo do arquivo;
-  - arquivo vazio;
-  - imagem inválida ou impossível de decodificar.
-- Validação de critérios técnicos, como:
-  - resolução mínima;
-  - proporção esperada;
-  - nitidez mínima.
-- Uso de `asyncio.to_thread` para executar as operações de CPU do OpenCV
-  sem bloquear o servidor assíncrono.
-- Definição de schemas de resposta com Pydantic.
-- Tratamento explícito de falhas de comunicação com o Ollama, incluindo:
-  - timeout;
-  - modelo ainda não baixado;
-  - indisponibilidade do serviço;
-  - resposta fora do formato JSON esperado.
-- Inclusão de endpoint de saúde para verificar o Ollama e a disponibilidade
-  do modelo de visão.
-- Manutenção de um endpoint separado para extração de texto manuscrito por OCR.
+- se a imagem foi aprovada ou rejeitada;
+- em qual etapa ocorreu a decisão;
+- a categoria detectada;
+- os motivos que levaram à reprovação.
 
-### Frontend
+A regra de negócio central é simples: a máquina aponta, a pessoa decide. Nenhuma alteração é aplicada automaticamente sem revisão humana.
 
-- Aplicação criada com **React, TypeScript e Vite**.
-- Componente de seleção de imagem com:
-  - seletor de arquivos nativo;
-  - filtro para arquivos de imagem;
-  - pré-visualização local antes do envio;
-  - callback para integração com a API.
-- Estrutura inicial para seleção de idioma.
-- Comunicação com o backend por meio do caminho `/api`, encaminhado pelo Nginx.
-- Configuração de desenvolvimento com atualização automática dos arquivos
-  usando o recurso `develop.watch` do Docker Compose.
+## Stack tecnológica
 
-### Infraestrutura e execução
-
-- Conteinerização do frontend e do backend.
-- Inclusão do Ollama como serviço independente.
-- Download automático do modelo de visão na inicialização da stack.
-- Inclusão do Nginx como proxy reverso:
-  - `/` encaminha para o frontend;
-  - `/api` encaminha para o backend.
-- Rede Docker compartilhada entre os serviços.
-- Possibilidade de habilitar GPU NVIDIA no serviço do Ollama, quando disponível.
+- Frontend: React + TypeScript + Vite
+- Backend: Python + FastAPI
+- Processamento visual: OpenCV
+- IA/Visão: Ollama + modelo de visão
+- OCR: suporte para extração de texto em imagem
+- Infraestrutura: Docker + Docker Compose + Nginx
 
 ## Arquitetura
 
@@ -68,168 +31,163 @@ Navegador
 Nginx (porta 80)
    |------------------------------|
    v                              v
-Frontend React/Vite          Backend FastAPI (porta 3000)
-                                  |
-                                  v
-                           Ollama (porta 11434)
-                                  |
-                                  v
-                           Modelo de visão
+Frontend React/Vite           Backend FastAPI
+   |                              |
+   |                              v
+   |                         OpenCV / regras
+   |                              |
+   |                              v
+   |                         Ollama (modelo de visão)
+   |
+   +------------------------------+
+
 ```
 
-O frontend é servido pelo Vite dentro do container. O Nginx centraliza o acesso
-da aplicação e evita que o navegador precise conhecer diretamente as portas
-internas do frontend e do backend.
+Fluxo principal:
 
-## Fluxo de análise
+1. o usuário envia uma imagem pelo frontend;
+2. o backend valida tipo, tamanho e integridade do arquivo;
+3. o OpenCV valida critérios técnicos como resolução e proporção;
+4. se passar na etapa técnica, a imagem é enviada ao modelo de visão;
+5. o resultado é devolvido ao frontend em JSON estruturado.
 
-1. O usuário seleciona uma imagem no frontend.
-2. O componente de upload cria uma prévia local e envia o arquivo para a API.
-3. O backend valida o tipo, o tamanho e o conteúdo do arquivo.
-4. O OpenCV decodifica a imagem e executa as verificações técnicas.
-5. Se algum critério técnico falhar, a imagem é reprovada sem consumir o modelo
-   de visão.
-6. Se a imagem passar na etapa técnica, o backend envia o arquivo ao Ollama.
-7. O modelo avalia os critérios configurados e retorna um JSON estruturado.
-8. O backend valida a resposta do modelo e devolve o resultado ao frontend.
+## Funcionalidades
 
-Essa separação reduz o custo das análises e facilita a identificação da causa
-de uma reprovação.
+- upload e pré-visualização da imagem no frontend;
+- validação de tipo MIME, arquivo vazio e imagem inválida;
+- checagem técnica local com OpenCV;
+- integração com Ollama para análise semântica;
+- endpoint de saúde para verificar disponibilidade dos serviços;
+- suporte para OCR de texto manuscrito/imagem.
 
-## API
+## Endpoints principais
 
 ### `POST /api/analisar`
 
-Recebe uma imagem no campo multipart `file`.
+Recebe uma imagem no multipart `file` e retorna o resultado da análise.
 
-Possíveis resultados:
+Exemplos de resposta:
 
 - `200`: análise concluída;
-- `400`: arquivo vazio, inválido ou que não representa uma imagem;
-- `413`: arquivo acima do limite configurado;
+- `400`: arquivo vazio ou inválido;
+- `413`: arquivo maior que o limite;
 - `415`: tipo de arquivo não aceito;
-- `502`, `503` ou `504`: falha na comunicação ou na resposta do Ollama.
-
-O retorno inclui o nome do arquivo, o status de aprovação, a etapa responsável
-pela decisão, a categoria identificada e os motivos encontrados.
+- `502`, `503` ou `504`: falha de comunicação com o Ollama.
 
 ### `GET /api/saude`
 
-Verifica:
+Retorna o estado dos serviços internos, como:
 
-- se o Ollama está respondendo;
-- se o modelo de visão está disponível para uso.
+- API;
+- LanguageTool;
+- IOPaint (quando ativado);
+- motor OCR configurado.
 
 ### `POST /api/uploadHandwriting`
 
-Recebe uma imagem e solicita a extração do texto ao modelo configurado para
-OCR. O retorno contém o nome do arquivo e o texto extraído.
+Recebe uma imagem e solicita a extração de texto para OCR.
 
-## Tecnologias utilizadas
-
-- **Frontend:** React, TypeScript, Vite e React Router.
-- **Backend:** Python, FastAPI, Pydantic e OpenCV.
-- **IA:** Ollama com modelo de visão compatível, como `llava`.
-- **Proxy reverso:** Nginx.
-- **Execução:** Docker e Docker Compose.
-
-## Como executar
-
-### Pré-requisitos
-
-- Docker Desktop ou Docker Engine com Docker Compose;
-- aproximadamente o espaço em disco necessário para as imagens Docker e o
-  modelo de IA;
-- opcionalmente, GPU NVIDIA configurada para acelerar o Ollama.
-
-### Subir a aplicação
-
-Na raiz do projeto, execute:
-
-```bash
-docker compose up -d
-```
-
-Para acompanhar os logs em primeiro plano:
-
-```bash
-docker compose up
-```
-
-O serviço de inicialização do Ollama baixa o modelo configurado antes de o
-backend realizar as análises. Para acompanhar esse processo:
-
-```bash
-docker compose logs -f ollama-init
-```
-
-Depois, acesse:
-
-```text
-http://localhost/
-```
-
-O backend também é exposto diretamente em:
-
-```text
-http://localhost:3000
-```
-
-### Encerrar a aplicação
-
-```bash
-docker compose down
-```
-
-Para remover também os volumes locais associados aos serviços:
-
-```bash
-docker compose down -v
-```
-
-> A remoção dos volumes pode apagar o modelo baixado do Ollama e exigir um novo
-> download na próxima inicialização.
-
-## Estrutura do projeto
+## Estrutura do repositório
 
 ```text
 .
 ├── Back-end/
 │   ├── Dockerfile
 │   ├── requirements.txt
+│   ├── requirements-ocr.txt
 │   ├── app/
-│   │   ├── config.py       # Configurações da aplicação e dos critérios
-│   │   ├── main.py         # Criação da aplicação FastAPI
-│   │   └── schemas.py      # Contratos das requisições e respostas
-│   ├── routes/
-│   │   └── images.py       # Endpoints de upload, análise e saúde
+│   │   ├── config.py
+│   │   ├── db.py
+│   │   ├── deps.py
+│   │   ├── main.py
+│   │   ├── models.py
+│   │   ├── schemas.py
+│   │   ├── serializers.py
+│   │   └── routes/
+│   │       ├── approvals.py
+│   │       ├── arts.py
+│   │       ├── images.py
+│   │       └── projects.py
 │   └── services/
-│       ├── technician.py   # Validações técnicas com OpenCV
-│       ├── vision.py       # Integração com o Ollama
-│       └── outpainting.py   # Serviço de expansão de imagem
+│       ├── adaptations.py
+│       ├── analyses.py
+│       ├── briefing.py
+│       ├── corrections.py
+│       ├── erros.py
+│       ├── formatos.py
+│       ├── mistakes.py
+│       ├── ocr.py
+│       ├── ortografia.py
+│       ├── outpainting.py
+│       ├── technician.py
+│       └── vision.py
 ├── Front-end/
 │   ├── Dockerfile
 │   ├── Dockerfile.dev
 │   └── app/
+│       ├── index.html
+│       ├── package.json
 │       └── src/
-│           ├── App.tsx
-│           └── components/
-│               ├── FileLoader.tsx
-│               └── LanguageSelector.tsx
+├── Agentes/
+├── data/
+├── iopaint/
 ├── docker-compose.yaml
-└── nginx.conf
+├── nginx.conf
+├── .env.example
+├── .gitignore
+├── README.md
+└── LICENSE (se existir no futuro)
 ```
 
-## Desenvolvimento
+## Como executar
 
-O Compose observa alterações no código durante o desenvolvimento:
+### Pré-requisitos
 
-- alterações em `Back-end/app` são sincronizadas no container do backend;
-- alterações em `Front-end/app` são sincronizadas no container do frontend;
-- mudanças nos arquivos de dependências provocam a reconstrução do serviço
-  correspondente.
+- Docker Engine ou Docker Desktop
+- Docker Compose
+- espaço em disco suficiente para as imagens e para os modelos de IA/OCR
 
-Para executar os comandos do frontend localmente:
+### Subir a aplicação
+
+Na raiz do projeto:
+
+```bash
+docker compose up -d --build
+```
+
+Para visualizar os logs em tempo real:
+
+```bash
+docker compose up
+```
+
+Depois, abra:
+
+```text
+http://localhost/
+```
+
+O backend também pode ser acessado diretamente em:
+
+```text
+http://localhost:3000
+```
+
+### Serviços opcionais
+
+O projeto conta com perfis opcionais para recursos extras:
+
+```bash
+docker compose --profile outpainting up -d --build
+```
+
+```bash
+docker compose --profile ia up -d
+```
+
+## Desenvolvimento local
+
+Para rodar o frontend localmente fora do container:
 
 ```bash
 cd Front-end/app
@@ -237,7 +195,7 @@ npm install
 npm run dev
 ```
 
-Comandos disponíveis:
+Comandos úteis:
 
 ```bash
 npm run build
@@ -245,12 +203,20 @@ npm run lint
 npm run preview
 ```
 
-## Observações
+## Validação e observações
 
-- O primeiro uso pode demorar enquanto o Ollama baixa o modelo.
-- Uma falha na etapa técnica não chama o modelo de IA, reduzindo tempo e
-  consumo de recursos.
-- O nome e a URL do modelo são tratados pela configuração do backend e pelas
-  variáveis do serviço no Compose.
-- O diretório usado para os modelos do Ollama é persistido em volume para evitar
-  downloads repetidos.
+- O primeiro uso pode demorar enquanto o Ollama baixa o modelo de visão.
+- A etapa técnica evita chamar a IA quando a imagem já falha em critérios básicos.
+- O backend trata falhas de comunicação com serviços externos de forma explícita.
+- Os volumes do Docker mantêm modelos e dados persistidos entre reinicializações.
+
+## Contribuição
+
+As alterações devem ser feitas de forma incremental, mantendo a separação entre:
+
+- regras de negócio;
+- integração com serviços externos;
+- camada HTTP;
+- interface do usuário.
+
+Este repositório foi organizado para facilitar manutenção, testes e evolução do fluxo de análise visual.
