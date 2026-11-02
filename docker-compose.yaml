@@ -35,13 +35,16 @@ services:
         - action: rebuild
           path: ./Back-end/requirements-ocr.txt
     ports:
-      - "3000:80"    # só para testar no /docs; o front fala com o back-end pelo Nginx
+      - "3000:80"    # API e documentação interativa
     networks:
       - app-networks
 
   # Corretor ortográfico LOCAL (nada sai da sua máquina)
   languagetool:
-    image: erikvl87/languagetool
+    build:
+      context: ./languagetool
+      dockerfile: Dockerfile
+    image: cria-mais-languagetool:local
     restart: unless-stopped
     networks:
       - app-networks
@@ -74,34 +77,5 @@ services:
       interval: 10s
       timeout: 5s
       retries: 15
-    networks:
-      - app-networks
-
-  front-end:
-    build:
-      context: ./Front-end
-      dockerfile: Dockerfile.dev
-    develop:
-      watch:
-        - action: sync
-          path: ./Front-end/app
-          target: /app/
-          initial_sync: true
-          ignore:
-            - node_modules/
-        - action: rebuild
-          path: ./Front-end/app/package.json
-    networks:
-      - app-networks
-
-  nginx:
-    image: nginx:stable-alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - back-end
-      - front-end
     networks:
       - app-networks

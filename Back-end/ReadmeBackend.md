@@ -6,16 +6,15 @@ O fluxo: envia o briefing, cria o projeto, envia as artes, o sistema aponta pont
 
 > **Princípio do projeto:** a máquina aponta, a pessoa decide. Nenhuma alteração é aplicada sem revisão, a arte original nunca é sobrescrita e a aprovação é sempre humana.
 
-Esta documentação cobre o **back-end** (a parte que está pronta). O front-end é descrito só no que depende dele.
+Esta documentação cobre o **back-end** (a parte que está pronta). O front-end será desenvolvido futuramente.
 
 ---
 
 ## 1. Arquitetura
 
 ```
-Navegador ──:80──► NGINX ─┬─ /      ──► front-end (React/Vite :5173)
-                          └─ /api/* ──► back-end (FastAPI :80)
-                                            │
+Cliente HTTP ──:3000──► back-end (FastAPI :80)
+                                      │
                        ┌────────────────────┼────────────────────────┐
                        ▼                    ▼                        ▼
                SQLite + arquivos     PaddleOCR (no back-end)   LanguageTool (container)
@@ -43,7 +42,7 @@ Navegador ──:80──► NGINX ─┬─ /      ──► front-end (React/V
 ```
 projeto/
 ├── docker-compose.yaml         # Orquestra todos os serviços (com profiles opcionais)
-├── nginx.conf                  # Porta de entrada: separa / (front) e /api (back-end)
+├── nginx.conf                  # Configuração reservada para a futura integração com o front-end
 ├── .env.example                # Variáveis do compose (copie para .env)
 ├── .gitignore
 ├── README.md
@@ -83,8 +82,7 @@ projeto/
 ├── iopaint/
 │   └── Dockerfile              # Imagem do IOPaint (não existe oficial no Docker Hub)
 │
-│   ── Pastas que existem no repositório mas NÃO fazem parte desta entrega ──
-├── Front-end/                  # React (Dockerfile.dev, app/). Ainda aponta para as rotas antigas
+│   ── Pastas usadas em tempo de execução ──
 ├── Agentes/                    # Volumes de modelos, criados em tempo de execução:
 │   ├── ollama-models/          #   (só com --profile ia)
 │   ├── iopaint-models/         #   modelo LaMa baixado na 1ª execução
@@ -112,7 +110,7 @@ Regra de ouro: **rotas não contêm regra de negócio**. Para mudar uma conferê
 Requisito: Docker.
 
 ```bash
-# 1) Subida padrão (back-end, LanguageTool, front, nginx)
+# 1) Subida padrão (back-end e LanguageTool)
 docker compose up -d --build
 
 # 2) Com outpainting real (IOPaint)
@@ -125,11 +123,11 @@ docker compose --profile ia up -d
 
 | O quê | Endereço |
 |---|---|
-| Aplicação (via Nginx) | http://localhost |
+| API | http://localhost:3000 |
 | Documentação interativa da API (Swagger) | http://localhost:3000/docs |
 | Estado dos serviços de apoio | http://localhost:3000/api/saude |
 
-A porta 3000 existe só para testar a API. O front fala com o back-end pelo Nginx (`/api`).
+O front-end será conectado futuramente à API exposta na porta 3000.
 
 **Hot reload:** use `docker compose watch` (ou `up --watch`). Com `up -d` puro, o código não é sincronizado.
 
@@ -303,28 +301,26 @@ O endpoint `/api/saude` é único; a rota antiga de saúde da análise Ollama fo
 
 Erros sempre voltam como `{"detail": "mensagem pronta para exibir"}`.
 
-## 7.1 Integração com o front-end
+## 7.1 Integração futura com o front-end
 
-Esta seção é o contrato de integração para quem estiver implementando o front-end.
-O front-end deve consumir somente os caminhos `/api/*`; não deve acessar diretamente
-o hostname interno `back-end`.
+O front-end ainda não faz parte da aplicação executada pelo Docker Compose.
+Quando for implementado, deverá consumir somente os caminhos `/api/*` e não
+acessar diretamente o hostname interno `back-end`.
 
 ### URLs
 
 | Ambiente | Base da API |
 |---|---|
-| Desenvolvimento pelo Nginx | `http://localhost/api` |
-| Backend direto para diagnóstico | `http://localhost:3000/api` |
+| Backend em desenvolvimento | `http://localhost:3000/api` |
 | Dentro da rede Docker | `http://back-end:80/api` |
 
-Em desenvolvimento no navegador, prefira sempre URLs relativas:
+Quando houver um proxy ou frontend servido na mesma origem, prefira URLs relativas:
 
 ```ts
 fetch("/api/projetos")
 ```
 
-Isso mantém o mesmo código funcionando atrás do Nginx e evita configurar uma URL
-interna do Docker no browser.
+Isso evita configurar uma URL interna do Docker no navegador.
 
 ### Headers
 
@@ -557,11 +553,11 @@ O frontend deve tratar pelo menos estes status:
 | `422` | Campo ou canal inválido |
 | `503`/`504` | Serviço auxiliar indisponível ou lento |
 
-### Proxy do Nginx
+### Proxy futuro
 
-O Nginx encaminha `/api` para o serviço `back-end` e `/` para o serviço
-`front-end`. O frontend não deve usar `localhost:3000` quando estiver sendo
-servido pelo Nginx em `http://localhost`; use `/api`.
+O `nginx.conf` permanece no repositório como configuração de referência para
+quando o frontend for incorporado. Atualmente, o backend é acessado diretamente
+em `http://localhost:3000`.
 
 ### Regra para mudanças de contrato
 
@@ -603,4 +599,4 @@ documentadas neste arquivo antes de serem consumidas pela interface.
 - **Cor fora do padrão não foi implementada** (a identidade oficial não foi fornecida).
 - **Login é de demonstração**, sem autenticação real.
 - **Arquivos temporários de briefing** (`data/tmp/`) não são limpos automaticamente.
-- **O front-end ainda aponta para as rotas antigas** e precisa ser ajustado a esta API.
+- **O front-end ainda não está integrado**; sua implementação deverá seguir o contrato desta API.
